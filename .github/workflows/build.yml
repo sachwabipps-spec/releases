@@ -1,39 +1,47 @@
-name: Build JSON
+name: Build APK
 
 on:
   push:
-    branches:
-      - main
-  schedule:
-    # * is a special character in YAML so you have to quote this string
-    - cron:  '0 * * * *'
+    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
-
     steps:
-    - uses: actions/checkout@v4
-    - name: Set up Python 3.12
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.12'
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install PyGithub
-    - name: Run script and commit changes
-      run: |
-        python release.py
-        echo "Setting up git credentials..."
-        git remote set-url origin https://x-access-token:"$GITHUB_TOKEN"@github.com/"$GITHUB_REPOSITORY".git
-        git config --global user.email "actions@github.com"
-        git config --global user.name "actions"
-        echo "Git credentials configured."
+      - uses: actions/checkout@v4
 
-        git checkout main
-        git add .
-        git commit -m "Automatic update of data" && git push --set-upstream origin main || true
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Décompresser le projet (zip 0.4)
+        run: |
+          ZIP=$(ls -t *0.4*.zip 2>/dev/null | head -n1)
+          if [ -z "$ZIP" ]; then
+            echo "Aucun zip contenant 0.4 trouvé à la racine :"
+            ls
+            exit 1
+          fi
+          echo "Zip utilisé : $ZIP"
+          unzip -q "$ZIP" -d src_unzip
+          ROOT=$(dirname "$(find src_unzip -name settings.gradle.kts | head -n1)")
+          mkdir -p build_src
+          cp -r "$ROOT"/. build_src/
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.9
+
+      - name: Build debug APK
+        working-directory: build_src
+        run: gradle assembleDebug --no-daemon
+
+      - name: Renommer l'APK en gaming-soul.apk
+        run: cp build_src/app/build/outputs/apk/debug/*.apk gaming-soul.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gaming-soul
+          path: gaming-soul.apk
